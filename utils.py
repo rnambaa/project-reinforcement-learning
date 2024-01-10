@@ -142,8 +142,8 @@ class SmartGridBatteryEnv(gymnasium.Env):
         return np.array(self.state)
 
     def render(self, mode="human"):
-        # Optional visualization code here
-        pass
+        # Print the current state
+        print(f"Current state: {self.state}")
 
     def close(self):
         # Optional cleanup code here
