@@ -6,33 +6,17 @@ import random
 from collections import defaultdict
 
 
-def preprocess_data(train_data_path, validate_data_path):
-    train_data = pd.read_excel(train_data_path)
-    validate_data = pd.read_excel(validate_data_path)
-
-    train_data_melted = train_data.melt(
-        id_vars="PRICES", var_name="Hour", value_name="Price"
-    )
-    validate_data_melted = validate_data.melt(
-        id_vars="PRICES", var_name="Hour", value_name="Price"
-    )
-
-    # Convert hour column to a numeric value
-    train_data_melted["Hour"] = (
-        train_data_melted["Hour"].str.extract(r"(\d+)").astype(int)
-    )
-    validate_data_melted["Hour"] = (
-        validate_data_melted["Hour"].str.extract(r"(\d+)").astype(int)
-    )
-
-    # Sort by date and hour for sequential access
-    train_data_melted.sort_values(by=["PRICES", "Hour"], inplace=True)
-    validate_data_melted.sort_values(by=["PRICES", "Hour"], inplace=True)
-
-    # rename the PRICES column to Date
-    train_data_melted.rename(columns={"PRICES": "Date"}, inplace=True)
-
-    return train_data_melted
+def process_data(path):
+    data = pd.read_excel(path)
+    # melt the data to have a single column for prices
+    data_melted = data.melt(id_vars="PRICES", var_name="Hour", value_name="Price")
+    # extract the hour from the hour column
+    data_melted["Hour"] = data_melted["Hour"].str.extract(r"(\d+)").astype(int)
+    # sort by prices and then by hour
+    data_melted.sort_values(by=["PRICES", "Hour"], inplace=True)
+    # rename prices to date
+    data_melted.rename(columns={"PRICES": "Date"}, inplace=True)
+    return data_melted
 
 
 class QLearningAgent:
@@ -50,12 +34,15 @@ class QLearningAgent:
         self.q_table = defaultdict(lambda: np.zeros(action_space.n))
 
     def choose_action(self, state):
+        state = tuple(state)  # Convert state to a tuple
         if random.uniform(0, 1) < self.epsilon:
             return self.action_space.sample()  # Explore action space
         else:
             return np.argmax(self.q_table[state])  # Exploit learned values
 
     def learn(self, state, action, reward, next_state):
+        state = tuple(state)  # Convert state to a tuple
+        next_state = tuple(next_state)  # Convert next_state to a tuple
         best_next_action = np.argmax(self.q_table[next_state])
         td_target = reward + self.gamma * self.q_table[next_state][best_next_action]
         td_error = td_target - self.q_table[state][action]
@@ -88,20 +75,19 @@ class SmartGridBatteryEnv(gymnasium.Env):
         # Initialize state and data
         self.data = data.reset_index(drop=True)
         self.current_index = 0  # To track the current position in the dataset
-        self.state = [
-            self.max_battery_capacity / 2,
-            self.data.at[self.current_index, "Hour"],
-            self.data.at[self.current_index, "Price"],
-        ]
 
-    def step(self, action):
+        # reset the state to the initial state
+        self.state = self.reset()
+
+    def step(self, action: float):
         # Extract state components
         battery_level, _, _ = self.state
 
         # Calculate new battery level considering efficiency
         delta_energy = action * self.efficiency
-        new_battery_level = np.clip(
-            battery_level + delta_energy, 0, self.max_battery_capacity
+        # Check if the battery is not fully charged or discharged
+        new_battery_level = max(
+            min(battery_level + delta_energy, 0), self.max_battery_capacity
         )
 
         # Update to the next hour in the dataset
@@ -110,9 +96,7 @@ class SmartGridBatteryEnv(gymnasium.Env):
         new_price = self.data.at[self.current_index, "Price"]
 
         # Calculate reward (or cost)
-        reward = (
-            -new_price * delta_energy
-        )  # Negative cost for discharging, positive revenue for charging
+        reward = -new_price * delta_energy
 
         # Update state
         self.state = [new_battery_level, new_hour, new_price]
@@ -120,11 +104,13 @@ class SmartGridBatteryEnv(gymnasium.Env):
         # Check if the episode is done (e.g., end of the dataset)
         done = self.current_index == 0
 
+        # return the new state, reward, done, and any additional information
         return np.array(self.state), reward, done, {}
 
     def reset(self):
         # Reset the state of the environment to an initial state
         self.current_index = 0
+        # state = [battery_level, hour, price]
         self.state = [
             self.max_battery_capacity / 2,
             self.data.at[self.current_index, "Hour"],
