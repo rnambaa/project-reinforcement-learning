@@ -60,6 +60,9 @@ class SmartGridBatteryEnv(gymnasium.Env):
         self.min_required_battery = 20  # kWh
         self.charge_discharge_limit = 20  # kWh
 
+        # variables
+        self.car_available = True
+
         # State Space: Battery charge level, Time of day, Electricity prices
         self.observation_space = spaces.Box(
             low=np.array([0, 0, 0]),
@@ -79,16 +82,36 @@ class SmartGridBatteryEnv(gymnasium.Env):
         # reset the state to the initial state
         self.state = self.reset()
 
+    @staticmethod
+    def adjust_battery_for_availability(self, battery_level: float, hour: int):
+        """Adjust the battery level if the car is not available (being used)) between 8am and 6pm"""
+        if hour >= 8 and hour < 18 and not self.car_available:
+            battery_level -= 20
+        return battery_level
+
     def step(self, action: float):
         # Extract state components
-        battery_level, _, _ = self.state
+        battery_level, hour, _ = self.state
+
+        # update the car availability randomly every day
+        if hour == 1:
+            self.car_available = random.choice([True, False])
+
+        # Adjust battery level if the car is not available
+        battery_level = self.adjust_battery_for_availability(self, battery_level, hour)
 
         # Calculate new battery level considering efficiency
-        delta_energy = action * self.efficiency
-        # Check if the battery is not fully charged or discharged
+        delta_energy = action * self.efficiency if self.car_available else 0
         new_battery_level = max(
             min(battery_level + delta_energy, 0), self.max_battery_capacity
         )
+
+        # ensure the battery level is at least 20kWh at 7am
+        if hour == 7 and new_battery_level < 20:
+            difference = 20 - new_battery_level
+            # pay the difference in price to charge the battery
+            delta_energy += difference
+            new_battery_level = 20
 
         # Update to the next hour in the dataset
         self.current_index = (self.current_index + 1) % len(self.data)
