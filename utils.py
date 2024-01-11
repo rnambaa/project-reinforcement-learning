@@ -18,35 +18,32 @@ def process_data(path):
     data_melted.rename(columns={"PRICES": "Date"}, inplace=True)
     return data_melted
 
-
 class QLearningAgent:
-    def __init__(
-        self,
-        action_space,
-        learning_rate=0.01,
-        discount_factor=0.9,
-        exploration_rate=0.1,
-    ):
+    def __init__(self, state_space, action_space, alpha=0.1, gamma=0.9, epsilon=1.0, epsilon_decay=0.995, epsilon_min=0.01):
+        self.state_space = state_space
         self.action_space = action_space
-        self.lr = learning_rate
-        self.gamma = discount_factor
-        self.epsilon = exploration_rate
-        self.q_table = defaultdict(lambda: np.zeros(action_space.n))
+        self.alpha = alpha
+        self.gamma = gamma
+        self.epsilon = epsilon
+        self.epsilon_decay = epsilon_decay
+        self.epsilon_min = epsilon_min
+        self.q_table = np.zeros((state_space.shape[0], action_space.n))
 
     def choose_action(self, state):
-        state = tuple(state)  # Convert state to a tuple
-        if random.uniform(0, 1) < self.epsilon:
-            return self.action_space.sample()  # Explore action space
+        if np.random.rand() < self.epsilon:
+            return self.action_space.sample()
         else:
-            return np.argmax(self.q_table[state])  # Exploit learned values
+            return np.argmax(self.q_table[state])
 
-    def learn(self, state, action, reward, next_state):
-        state = tuple(state)  # Convert state to a tuple
-        next_state = tuple(next_state)  # Convert next_state to a tuple
+    def update_q_table(self, state, action, reward, next_state):
         best_next_action = np.argmax(self.q_table[next_state])
-        td_target = reward + self.gamma * self.q_table[next_state][best_next_action]
-        td_error = td_target - self.q_table[state][action]
-        self.q_table[state][action] += self.lr * td_error
+        td_target = reward + self.gamma * self.q_table[next_state, best_next_action]
+        td_error = td_target - self.q_table[state, action]
+        self.q_table[state, action] += self.alpha * td_error
+
+    def decay_epsilon(self):
+        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
+
 
 
 class SmartGridBatteryEnv(gymnasium.Env):
@@ -70,10 +67,8 @@ class SmartGridBatteryEnv(gymnasium.Env):
             dtype=np.float32,
         )
 
-        # Action Space: Charge/Discharge amount (positive for charging, negative for discharging)
-        self.action_space = spaces.Box(
-            low=-self.MAX_POWER, high=self.MAX_POWER, shape=(1,), dtype=np.float32
-        )
+        # Define the discrete action space
+        self.action_space = spaces.Discrete(11)
 
         # Initialize state and data
         self.data = data.reset_index(drop=True)
@@ -96,8 +91,14 @@ class SmartGridBatteryEnv(gymnasium.Env):
         # Update state
         self.state = [battery_level, new_hour, new_price]
 
-    def step(self, action: float):
-        action = action[0]
+    def get_power_value(self, action_index):
+        """Converts an action index to a power value. Power value is range between -25 and 25 in steps of 5"""
+        if action_index < 0 or action_index > 10:
+            raise ValueError("Invalid action index. Must be between 0 and 10.")
+        return (action_index - 5) * 5
+
+    def step(self, action: int):
+        action = self.get_power_value(action)
         # Extract state components
         battery_level, hour, price = self.state
         reward = 0
