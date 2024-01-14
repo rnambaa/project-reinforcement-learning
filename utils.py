@@ -5,6 +5,9 @@ from gymnasium import spaces
 import random
 from collections import defaultdict
 
+def discretize_space(min_value, max_value, step_size=1):
+    ''' Creates a discrete space for a given min, max and step size. '''
+    return np.arange(min_value, max_value + step_size, step_size)
 
 def process_data(path):
     data = pd.read_excel(path)
@@ -16,7 +19,14 @@ def process_data(path):
     data_melted.sort_values(by=["PRICES", "Hour"], inplace=True)
     # rename prices to date
     data_melted.rename(columns={"PRICES": "Date"}, inplace=True)
+    # maps each price to nearest discrete value 
+    discrete_array = discretize_space(data_melted["Price"].min(), data_melted["Price"].max(), step_size=1)
+    indices = np.searchsorted(discrete_array, data_melted["Price"])
+    closest_discrete_values = discrete_array[indices]
+    data_melted["Price"] = closest_discrete_values
+
     return data_melted
+
 
 class QLearningAgent:
     def __init__(self, state_space, action_space, alpha=0.1, gamma=0.9, epsilon=1.0, epsilon_decay=0.995, epsilon_min=0.01):
@@ -59,16 +69,24 @@ class SmartGridBatteryEnv(gymnasium.Env):
 
         # variables
         self.car_available = True
+        self.battery_step_size = 5
+        
+        # State Space: Battery charge level, Time of day, Electricity prices 
+        # self.observation_space = spaces.Box(
+        #     low=np.array([0, 0, 0]),
+        #     high=np.array([self.BATTERY_CAPACITY, 24, np.inf]),
+        #     dtype=np.float32,
+        # )
 
-        # State Space: Battery charge level, Time of day, Electricity prices
-        self.observation_space = spaces.Box(
-            low=np.array([0, 0, 0]),
-            high=np.array([self.BATTERY_CAPACITY, 24, np.inf]),
-            dtype=np.float32,
-        )
+        # Discrete State Space
+        self.observation_space = spaces.Tuple([
+            spaces.Discrete(int(50 / self.battery_step_size)), # Battery charge level
+            spaces.Discrete(int(data["Hour"].nunique())),      # Time of day
+            spaces.Discrete(int(data["Price"].nunique())),     # Electricity prices
+        ])
 
-        # Define the discrete action space
-        self.action_space = spaces.Discrete(11)
+        # Define the discrete action space (Battery charge level)
+        self.action_space = spaces.Discrete(int((50 / self.battery_step_size) + 1)) # +1 since indexed at 0 
 
         # Initialize state and data
         self.data = data.reset_index(drop=True)
@@ -84,6 +102,7 @@ class SmartGridBatteryEnv(gymnasium.Env):
             battery_level -= self.DAY_USAGE
         return battery_level
 
+
     def update_state(self, battery_level: float):
         self.current_index = (self.current_index + 1) % len(self.data)
         new_hour = self.data.at[self.current_index, "Hour"]
@@ -91,14 +110,26 @@ class SmartGridBatteryEnv(gymnasium.Env):
         # Update state
         self.state = [battery_level, new_hour, new_price]
 
-    def get_power_value(self, action_index):
-        """Converts an action index to a power value. Power value is range between -25 and 25 in steps of 5"""
-        if action_index < 0 or action_index > 10:
+
+    # def get_power_value(self, action_index):
+    #     """Converts an action index to a power value. Power value is range between -25 and 25 in steps of 5"""
+    #     if action_index < 0 or action_index > 10:
+    #         raise ValueError("Invalid action index. Must be between 0 and 10.")
+    #     return (action_index - 5) * 5
+    
+
+    def get_power_value(self, action_index, battery_step_size):
+        """Converts an action index to a power value. Power value is range between -25 and 25 in for a given battery step size."""
+        max_action_index = (50 / battery_step_size)
+        if action_index < 0 or action_index > (max_action_index):
             raise ValueError("Invalid action index. Must be between 0 and 10.")
-        return (action_index - 5) * 5
+        
+        return (action_index - max_action_index / 2) * battery_step_size
+
+    
 
     def step(self, action: int):
-        action = self.get_power_value(action)
+        action = self.get_power_value(action, self.battery_step_size)
         # Extract state components
         battery_level, hour, price = self.state
         reward = 0
@@ -120,14 +151,14 @@ class SmartGridBatteryEnv(gymnasium.Env):
                 charging_amount = min(max_possible_charging_amount, delta_energy)
                 battery_level += charging_amount
                 # pay the price to charge the battery
-                reward -= 2 * price * charging_amount / self.EFFICIENCY
+                reward -= 2 * (price / 1000) * charging_amount / self.EFFICIENCY
             else:
                 # discharging
                 max_possible_discharging_amount = -battery_level
                 discharging_amount = max(max_possible_discharging_amount, delta_energy)
                 battery_level += discharging_amount
                 # get paid the price to discharge the battery
-                reward += price * discharging_amount / self.EFFICIENCY
+                reward += (price / 1000) * discharging_amount / self.EFFICIENCY
 
         # ensure the battery level is at least 20kWh at 7am
         if hour == 7 and battery_level < 20:
