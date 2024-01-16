@@ -3,8 +3,7 @@ import numpy as np
 import gymnasium
 from gymnasium import spaces
 import random
-from collections import defaultdict
-
+# test comment
 def discretize_space(min_value, max_value, step_size=1):
     ''' Creates a discrete space for a given min, max and step size. '''
     return np.arange(min_value, max_value + step_size, step_size)
@@ -19,7 +18,7 @@ def process_data(path):
     data_melted.sort_values(by=["PRICES", "Hour"], inplace=True)
     # rename prices to date
     data_melted.rename(columns={"PRICES": "Date"}, inplace=True)
-    # maps each price to nearest discrete value 
+    # maps each price to nearest discrete value
     discrete_array = discretize_space(data_melted["Price"].min(), data_melted["Price"].max(), step_size=1)
     indices = np.searchsorted(discrete_array, data_melted["Price"])
     closest_discrete_values = discrete_array[indices]
@@ -70,8 +69,8 @@ class SmartGridBatteryEnv(gymnasium.Env):
         # variables
         self.car_available = True
         self.battery_step_size = 5
-        
-        # State Space: Battery charge level, Time of day, Electricity prices 
+
+        # State Space: Battery charge level, Time of day, Electricity prices
         # self.observation_space = spaces.Box(
         #     low=np.array([0, 0, 0]),
         #     high=np.array([self.BATTERY_CAPACITY, 24, np.inf]),
@@ -86,7 +85,7 @@ class SmartGridBatteryEnv(gymnasium.Env):
         ])
 
         # Define the discrete action space (Battery charge level)
-        self.action_space = spaces.Discrete(int((50 / self.battery_step_size) + 1)) # +1 since indexed at 0 
+        self.action_space = spaces.Discrete(int((50 / self.battery_step_size) + 1)) # +1 since indexed at 0
 
         # Initialize state and data
         self.data = data.reset_index(drop=True)
@@ -116,17 +115,17 @@ class SmartGridBatteryEnv(gymnasium.Env):
     #     if action_index < 0 or action_index > 10:
     #         raise ValueError("Invalid action index. Must be between 0 and 10.")
     #     return (action_index - 5) * 5
-    
+
 
     def get_power_value(self, action_index, battery_step_size):
         """Converts an action index to a power value. Power value is range between -25 and 25 in for a given battery step size."""
         max_action_index = (50 / battery_step_size)
         if action_index < 0 or action_index > (max_action_index):
             raise ValueError("Invalid action index. Must be between 0 and 10.")
-        
+
         return (action_index - max_action_index / 2) * battery_step_size
 
-    
+
 
     def step(self, action: int):
         action = self.get_power_value(action, self.battery_step_size)
