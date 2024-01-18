@@ -109,7 +109,7 @@ class SmartGridBatteryEnv(gymnasium.Env):
         self.observation_space = spaces.Tuple([
             spaces.Discrete(int(50 / self.battery_step_size)), # Battery charge level
             spaces.Discrete(int(data["Hour"].nunique())),      # Time of day
-            spaces.Discrete(int(discretize_space(0,500,step_size=10) + 1)) # Electricity prices
+            spaces.Discrete(int(discretize_space(0,500,step_size=5) + 1)) # Electricity prices
             spaces.Discrete(7)                                  # day of the week
         ])
 
