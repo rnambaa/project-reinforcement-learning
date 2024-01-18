@@ -2,11 +2,26 @@ import pandas as pd
 import numpy as np
 import gymnasium
 from gymnasium import spaces
+import seaborn as sns
 import random
+import matplotlib.pyplot as plt
 # test comment
 def discretize_space(min_value, max_value, step_size=1):
     ''' Creates a discrete space for a given min, max and step size. '''
     return np.arange(min_value, max_value + step_size, step_size)
+
+def plot_log(log_df, hours=48):
+    # plot the log: price, action, battery level, reward, car available
+    fig, axes = plt.subplots(6, 1, figsize=(15, 15), sharex=True)
+    # select the first 48 hours
+    log_df = log_df.iloc[:hours]
+
+    sns.lineplot(ax=axes[0], data=log_df, x=log_df.index, y="Price")
+    sns.lineplot(ax=axes[1], data=log_df, x=log_df.index, y="Action")
+    sns.lineplot(ax=axes[2], data=log_df, x=log_df.index, y="Battery Level")
+    sns.lineplot(ax=axes[3], data=log_df, x=log_df.index, y="Reward")
+    sns.lineplot(ax=axes[4], data=log_df, x=log_df.index, y="Hour")
+    sns.lineplot(ax=axes[5], data=log_df, x=log_df.index, y="Car Available")
 
 def process_data(path):
     data = pd.read_excel(path)
