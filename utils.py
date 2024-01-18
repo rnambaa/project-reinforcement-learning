@@ -194,8 +194,14 @@ class SmartGridBatteryEnv(gymnasium.Env):
                 max_possible_discharging_amount = -battery_level
                 discharging_amount = max(max_possible_discharging_amount, delta_energy)
                 battery_level += discharging_amount
+                # make discharge amount positive
+                discharging_amount = abs(discharging_amount)
                 # get paid the price to discharge the battery
+
                 reward += (price / 1000) * discharging_amount / self.EFFICIENCY
+
+
+
 
         # ensure the battery level is at least 20kWh at 7am
         if hour == 7 and battery_level < 20:
