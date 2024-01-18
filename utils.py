@@ -104,18 +104,12 @@ class SmartGridBatteryEnv(gymnasium.Env):
         self.battery_step_size = 5
         self.log = []
 
-        # State Space: Battery charge level, Time of day, Electricity prices
-        # self.observation_space = spaces.Box(
-        #     low=np.array([0, 0, 0]),
-        #     high=np.array([self.BATTERY_CAPACITY, 24, np.inf]),
-        #     dtype=np.float32,
-        # )
 
         # Discrete State Space
         self.observation_space = spaces.Tuple([
             spaces.Discrete(int(50 / self.battery_step_size)), # Battery charge level
             spaces.Discrete(int(data["Hour"].nunique())),      # Time of day
-            spaces.Discrete(int(data["Price"].nunique())),     # Electricity prices,
+            spaces.Discrete(int(discretize_space(0,500,step_size=10) + 1)) # Electricity prices
             spaces.Discrete(7)                                  # day of the week
         ])
 
@@ -145,13 +139,6 @@ class SmartGridBatteryEnv(gymnasium.Env):
         new_day = self.data.at[self.current_index, "Day of Week"]
         # Update state
         self.state = [battery_level, new_hour, new_price , new_day]
-
-
-    # def get_power_value(self, action_index):
-    #     """Converts an action index to a power value. Power value is range between -25 and 25 in steps of 5"""
-    #     if action_index < 0 or action_index > 10:
-    #         raise ValueError("Invalid action index. Must be between 0 and 10.")
-    #     return (action_index - 5) * 5
 
 
     def get_power_value(self, action_index, battery_step_size):
