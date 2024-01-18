@@ -24,6 +24,9 @@ def process_data(path):
     closest_discrete_values = discrete_array[indices]
     data_melted["Price"] = closest_discrete_values
 
+    # add column for day of the week
+    data_melted["Day of Week"] = data_melted["Date"].dt.dayofweek
+
     return data_melted
 
 
@@ -36,19 +39,34 @@ class QLearningAgent:
         self.epsilon = epsilon
         self.epsilon_decay = epsilon_decay
         self.epsilon_min = epsilon_min
-        self.q_table = np.zeros((state_space.shape[0], action_space.n))
+        # self.q_table = np.zeros((state_space, action_space))
+        self.q_table = {}  # Nested dictionaries for Q-values
 
     def choose_action(self, state):
         if np.random.rand() < self.epsilon:
-            return self.action_space.sample()
+            return np.random.choice(self.action_space)
         else:
             return np.argmax(self.q_table[state])
 
+
+    def get_q_value(self, state, action):
+        # Returns the Q-value for a given state-action pair
+        return self.q_table.get(state, {}).get(action, 0)
+
+
+    # def update_q_table(self, state, action, reward, next_state):
+    #     best_next_action = np.argmax(self.q_table[next_state])
+    #     td_target = reward + self.gamma * self.q_table[next_state, best_next_action]
+    #     td_error = td_target - self.q_table[state, action]
+    #     self.q_table[state, action] += self.alpha * td_error
+
+
     def update_q_table(self, state, action, reward, next_state):
-        best_next_action = np.argmax(self.q_table[next_state])
-        td_target = reward + self.gamma * self.q_table[next_state, best_next_action]
-        td_error = td_target - self.q_table[state, action]
-        self.q_table[state, action] += self.alpha * td_error
+        # Update Q-table with new knowledge
+        next_max = max(self.q_table.get(next_state, {}).values(), default=0)
+        self.q_table.setdefault(state, {})[action] = (1 - self.alpha) * self.get_q_value(state, action) + \
+                                                      self.alpha * (reward + self.gamma * next_max)
+
 
     def decay_epsilon(self):
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
@@ -69,6 +87,7 @@ class SmartGridBatteryEnv(gymnasium.Env):
         # variables
         self.car_available = True
         self.battery_step_size = 5
+        self.log = []
 
         # State Space: Battery charge level, Time of day, Electricity prices
         # self.observation_space = spaces.Box(
@@ -81,8 +100,10 @@ class SmartGridBatteryEnv(gymnasium.Env):
         self.observation_space = spaces.Tuple([
             spaces.Discrete(int(50 / self.battery_step_size)), # Battery charge level
             spaces.Discrete(int(data["Hour"].nunique())),      # Time of day
-            spaces.Discrete(int(data["Price"].nunique())),     # Electricity prices
+            spaces.Discrete(int(data["Price"].nunique())),     # Electricity prices,
+            spaces.Discrete(7)                                  # day of the week
         ])
+
 
         # Define the discrete action space (Battery charge level)
         self.action_space = spaces.Discrete(int((50 / self.battery_step_size) + 1)) # +1 since indexed at 0
@@ -95,7 +116,7 @@ class SmartGridBatteryEnv(gymnasium.Env):
         self.state = self.reset()
 
     @staticmethod
-    def adjust_battery_for_availability(self, battery_level: float, hour: int):
+    def use_car(self, battery_level: float, hour: int):
         """Adjust the battery level if the car is not available (being used)) between 8am and 6pm"""
         if hour == 18 and not self.car_available:
             battery_level -= self.DAY_USAGE
@@ -106,8 +127,9 @@ class SmartGridBatteryEnv(gymnasium.Env):
         self.current_index = (self.current_index + 1) % len(self.data)
         new_hour = self.data.at[self.current_index, "Hour"]
         new_price = self.data.at[self.current_index, "Price"]
+        new_day = self.data.at[self.current_index, "Day of Week"]
         # Update state
-        self.state = [battery_level, new_hour, new_price]
+        self.state = [battery_level, new_hour, new_price , new_day]
 
 
     # def get_power_value(self, action_index):
@@ -130,7 +152,7 @@ class SmartGridBatteryEnv(gymnasium.Env):
     def step(self, action: int):
         action = self.get_power_value(action, self.battery_step_size)
         # Extract state components
-        battery_level, hour, price = self.state
+        battery_level, hour, price, day_of_week = self.state
         reward = 0
 
         # update the car availability randomly every day
@@ -138,7 +160,7 @@ class SmartGridBatteryEnv(gymnasium.Env):
             self.car_available = random.choice([True, False])
 
         # Adjust battery level if the car is not available
-        battery_level = self.adjust_battery_for_availability(self, battery_level, hour)
+        battery_level = self.use_car(self, battery_level, hour)
 
         # Calculate new battery level if car is available or if it is outside the 8am-6pm window
         if self.car_available or (hour < 8 or hour > 18):
@@ -146,7 +168,7 @@ class SmartGridBatteryEnv(gymnasium.Env):
             delta_energy = action * self.EFFICIENCY
             if delta_energy > 0:
                 # charging
-                max_possible_charging_amount = self.MAX_POWER - battery_level
+                max_possible_charging_amount = self.BATTERY_CAPACITY - battery_level
                 charging_amount = min(max_possible_charging_amount, delta_energy)
                 battery_level += charging_amount
                 # pay the price to charge the battery
@@ -173,6 +195,16 @@ class SmartGridBatteryEnv(gymnasium.Env):
         # Check if the episode is done (e.g., end of the dataset)
         done = self.current_index == 0
 
+        # log action, battery level, hour, price, reward as dict
+        self.log.append({
+            "Action": action,
+            "Battery Level": battery_level,
+            "Hour": hour,
+            "Price": price,
+            "Reward": reward,
+            "Car Available": self.car_available,
+        })
+
         # return the new state, reward, done, and any additional information
         return np.array(self.state), reward, done, {}
 
@@ -184,7 +216,16 @@ class SmartGridBatteryEnv(gymnasium.Env):
             self.BATTERY_CAPACITY / 2,
             self.data.at[self.current_index, "Hour"],
             self.data.at[self.current_index, "Price"],
+            self.data.at[self.current_index, "Day of Week"]
         ]
+        # add the initial state to the log
+        self.log.append({
+            "Action": 0,
+            "Battery Level": self.state[0],
+            "Hour": self.state[1],
+            "Price": self.state[2],
+            "Reward": 0
+        })
         return np.array(self.state)
 
     def render(self, mode="human"):
