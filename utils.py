@@ -34,7 +34,7 @@ def process_data(path):
     # rename prices to date
     data_melted.rename(columns={"PRICES": "Date"}, inplace=True)
     # maps each price to nearest discrete value
-    discrete_array = discretize_space(data_melted["Price"].min(), data_melted["Price"].max(), step_size=1)
+    discrete_array = discretize_space(data_melted["Price"].min(), data_melted["Price"].max(), step_size=10)
     indices = np.searchsorted(discrete_array, data_melted["Price"])
     closest_discrete_values = discrete_array[indices]
     data_melted["Price"] = closest_discrete_values
@@ -109,7 +109,7 @@ class SmartGridBatteryEnv(gymnasium.Env):
         self.observation_space = spaces.Tuple([
             spaces.Discrete(int(50 / self.battery_step_size)), # Battery charge level
             spaces.Discrete(int(data["Hour"].nunique())),      # Time of day
-            spaces.Discrete(int(discretize_space(0,500,step_size=5) + 1)) # Electricity prices
+            spaces.Discrete(int(discretize_space(0,500,step_size=10) + 1)) # Electricity prices
             spaces.Discrete(7)                                  # day of the week
         ])
 
