@@ -5,10 +5,8 @@ from gymnasium import spaces
 import seaborn as sns
 import random
 import matplotlib.pyplot as plt
-# test comment
-def discretize_space(min_value, max_value, step_size=1):
-    ''' Creates a discrete space for a given min, max and step size. '''
-    return np.arange(min_value, max_value + step_size, step_size)
+
+
 
 def plot_log(log_df, hours=48):
     # plot the log: price, action, battery level, reward, car available
@@ -33,16 +31,30 @@ def process_data(path):
     data_melted.sort_values(by=["PRICES", "Hour"], inplace=True)
     # rename prices to date
     data_melted.rename(columns={"PRICES": "Date"}, inplace=True)
-    # maps each price to nearest discrete value
-    discrete_array = discretize_space(data_melted["Price"].min(), data_melted["Price"].max(), step_size=10)
-    indices = np.searchsorted(discrete_array, data_melted["Price"])
-    closest_discrete_values = discrete_array[indices]
-    data_melted["Price"] = closest_discrete_values
 
     # add column for day of the week
     data_melted["Day of Week"] = data_melted["Date"].dt.dayofweek
 
+    # bin prices
+    data_melted = bin_prices_with_index(data_melted, 'Price', 500, 10)
+
     return data_melted
+
+def bin_prices_with_index(data: pd.DataFrame, price_column: str, high_price_threshold: int, step_size: int) -> pd.DataFrame:
+
+    # Constants
+    HIGH_PRICE_BIN_INDEX = high_price_threshold // step_size
+
+    # Function to determine the bin index for each price
+    def determine_bin_index(price: float) -> int:
+        if price > high_price_threshold:
+            return HIGH_PRICE_BIN_INDEX
+        else:
+            return int(price // step_size)
+
+    # Apply the binning function to the price column
+    data['Price_Bin_Index'] = data[price_column].apply(determine_bin_index)
+    return data
 
 
 class QLearningAgent:
@@ -108,8 +120,8 @@ class SmartGridBatteryEnv(gymnasium.Env):
         # Discrete State Space
         self.observation_space = spaces.Tuple([
             spaces.Discrete(int(50 / self.battery_step_size)), # Battery charge level
-            spaces.Discrete(int(data["Hour"].nunique())),      # Time of day
-            spaces.Discrete(int(discretize_space(0,500,step_size=10) + 1)) # Electricity prices
+            spaces.Discrete(24),      # Time of day
+            spaces.Discrete(51), # Electricity prices
             spaces.Discrete(7)                                  # day of the week
         ])
 
@@ -135,10 +147,11 @@ class SmartGridBatteryEnv(gymnasium.Env):
     def update_state(self, battery_level: float):
         self.current_index = (self.current_index + 1) % len(self.data)
         new_hour = self.data.at[self.current_index, "Hour"]
-        new_price = self.data.at[self.current_index, "Price"]
+        new_price_index = self.data.at[self.current_index, "Price_Bin_Index"]
         new_day = self.data.at[self.current_index, "Day of Week"]
+        self.price = self.data.at[self.current_index, "Price"]
         # Update state
-        self.state = [battery_level, new_hour, new_price , new_day]
+        self.state = [battery_level, new_hour, new_price_index , new_day]
 
 
     def get_power_value(self, action_index, battery_step_size):
@@ -154,8 +167,9 @@ class SmartGridBatteryEnv(gymnasium.Env):
     def step(self, action: int):
         action = self.get_power_value(action, self.battery_step_size)
         # Extract state components
-        battery_level, hour, price, day_of_week = self.state
+        battery_level, hour, price_index, day_of_week = self.state
         reward = 0
+        price = self.price
 
         # update the car availability randomly every day
         if hour == 1:
@@ -213,19 +227,19 @@ class SmartGridBatteryEnv(gymnasium.Env):
     def reset(self):
         # Reset the state of the environment to an initial state
         self.current_index = 0
-        # state = [battery_level, hour, price]
         self.state = [
             self.BATTERY_CAPACITY / 2,
             self.data.at[self.current_index, "Hour"],
-            self.data.at[self.current_index, "Price"],
+            self.data.at[self.current_index, "Price_Bin_Index"],
             self.data.at[self.current_index, "Day of Week"]
         ]
+        self.price = self.data.at[self.current_index, "Price"]
         # add the initial state to the log
         self.log.append({
             "Action": 0,
             "Battery Level": self.state[0],
             "Hour": self.state[1],
-            "Price": self.state[2],
+            "Price": self.price,
             "Reward": 0
         })
         return np.array(self.state)
