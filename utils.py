@@ -116,14 +116,29 @@ class SmartGridBatteryEnv(gymnasium.Env):
         self.battery_step_size = 5
         self.log = []
 
+        # number of states
+        # self.num_battery_levels = int(50 / self.battery_step_size) # this is wrong, because of the discount factor..
+        self.num_battery_levels = 100 # adhoc 
+        self.num_hours = 24
+        self.num_price_bins = 51
+        self.num_days_of_week = 7
 
-        # Discrete State Space
-        self.observation_space = spaces.Tuple([
-            spaces.Discrete(int(50 / self.battery_step_size)), # Battery charge level
-            spaces.Discrete(24),      # Time of day
-            spaces.Discrete(51), # Electricity prices
-            spaces.Discrete(7)                                  # day of the week
-        ])
+
+        # # Discrete State Space
+        # self.observation_space = spaces.Tuple([
+        #     spaces.Discrete(int(50 / self.battery_step_size)),  # Battery charge level
+        #     spaces.Discrete(24),                                # Time of day
+        #     spaces.Discrete(51),                                # Electricity prices
+        #     spaces.Discrete(7)                                  # day of the week
+        # ])
+
+        # Discrete State Space - integer representation (for Q-learning) 
+        # NOTE: this is only used in the q-learning training loop 
+        self.observation_space = spaces.Discrete(
+            int(self.num_battery_levels * self.num_hours * self.num_price_bins * self.num_days_of_week)
+            )
+
+
 
 
         # Define the discrete action space (Battery charge level)
@@ -147,11 +162,34 @@ class SmartGridBatteryEnv(gymnasium.Env):
     def update_state(self, battery_level: float):
         self.current_index = (self.current_index + 1) % len(self.data)
         new_hour = self.data.at[self.current_index, "Hour"]
-        new_price_index = self.data.at[self.current_index, "Price_Bin_Index"]
+        new_price_bin = self.data.at[self.current_index, "Price_Bin_Index"]
         new_day = self.data.at[self.current_index, "Day of Week"]
         self.price = self.data.at[self.current_index, "Price"]
         # Update state
-        self.state = [battery_level, new_hour, new_price_index , new_day]
+        self.state = [battery_level, new_hour, new_price_bin , new_day]
+
+
+    def get_state_index(self, state_array):
+        """
+        Converts a state tuple to a unique integer index.
+        :param state_array: An array containing (battery_level, hour, price_bin, day_of_week)
+        :return: A unique integer representing the state.
+        """
+        battery_level, hour, price_bin, day_of_week = state_array
+
+        # Define the range for each component of the state
+        num_battery_levels = self.num_battery_levels
+        num_hours = self.num_hours
+        num_price_bins = self.num_price_bins
+        num_days = self.num_days_of_week
+
+        # Calculate the unique index
+        index = (battery_level * num_hours * num_price_bins * num_days +
+                hour * num_price_bins * num_days +
+                price_bin * num_days +
+                day_of_week)
+
+        return int(index)
 
 
     def get_power_value(self, action_index, battery_step_size):
