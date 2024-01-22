@@ -118,7 +118,7 @@ class SmartGridBatteryEnv(gymnasium.Env):
 
         # number of states
         # self.num_battery_levels = int(50 / self.battery_step_size) # this is wrong, because of the discount factor..
-        self.num_battery_levels = 100 # adhoc 
+        self.num_battery_levels = 100 # adhoc
         self.num_hours = 24
         self.num_price_bins = 51
         self.num_days_of_week = 7
@@ -132,8 +132,8 @@ class SmartGridBatteryEnv(gymnasium.Env):
         #     spaces.Discrete(7)                                  # day of the week
         # ])
 
-        # Discrete State Space - integer representation (for Q-learning) 
-        # NOTE: this is only used in the q-learning training loop 
+        # Discrete State Space - integer representation (for Q-learning)
+        # NOTE: this is only used in the q-learning training loop
         self.observation_space = spaces.Discrete(
             int(self.num_battery_levels * self.num_hours * self.num_price_bins * self.num_days_of_week)
             )

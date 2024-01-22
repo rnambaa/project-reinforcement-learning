@@ -157,3 +157,11 @@ class Electric_Car(gym.Env):
         )
 
         return self.state
+
+    def reset(self):
+        # Reset the environment to its initial state
+        self.day = 1
+        self.hour = 1
+        self.battery_level = 0
+        self.state = self.observation()
+        return self.state
