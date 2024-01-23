@@ -1,19 +1,22 @@
-import gym
+import gymnasium as gym
 import numpy as np
 import pandas as pd
+import random
 
 
 class Electric_Car(gym.Env):
-    def __init__(self, path_to_test_data=str):
+    def __init__(self):
         # Define a continuous action space, -1 to 1. (You can discretize this later!)
-        self.continuous_action_space = gym.spaces.Box(
-            low=-1, high=1, shape=(1,), dtype=np.float32
-        )
+        self.action_space = gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32)
         # Define the test data
-        self.test_data = pd.read_excel(path_to_test_data)
-        self.price_values = self.test_data.iloc[:, 1:25].to_numpy()
-        self.timestamps = self.test_data["PRICES"]
-        self.state = np.empty(7)
+        # self.test_data = pd.read_excel(path_to_test_data)
+        # self.price_values = self.test_data.iloc[:, 1:25].to_numpy()
+        # self.timestamps = self.test_data["PRICES"]
+        self.set_data("data/train.xlsx")
+
+        self.observation_space = gym.spaces.Box(
+            low=-np.inf, high=np.inf, shape=(7,), dtype=np.float32
+        )
 
         # Battery characteristics
         self.battery_capacity = 50  # kWh
@@ -29,6 +32,11 @@ class Electric_Car(gym.Env):
         self.hour = 1
         self.day = 1
         self.car_is_available = True
+
+    def set_data(self, path_to_test_data=str):
+        self.test_data = pd.read_excel(path_to_test_data)
+        self.price_values = self.test_data.iloc[:, 1:25].to_numpy()
+        self.timestamps = self.test_data["PRICES"]
 
     def step(self, action):
         action = np.squeeze(action)  # Remove the extra dimension
@@ -129,13 +137,19 @@ class Electric_Car(gym.Env):
         )  # If the counter is equal to the number of hours in the test data, terminate the episode
         truncated = False
 
-        info = action  # The final action taken after all constraints!
-        self.state = self.observation()  # Update the state
+        info = {
+            "final_action": action,
+            "truncated": truncated,
+        }  # Include 'truncated' in the info dictionary
 
-        return self.state, reward, terminated, truncated, info
+        self.observation_space = self.observation()  # Update the state
+
+        return self.observation_space, reward, terminated, truncated, info  # Return four values
 
     def observation(self):  # Returns the current state
         battery_level = self.battery_level
+        if self.day > len(self.price_values):
+            self.day = len(self.price_values)
         price = self.price_values[self.day - 1][self.hour - 1]
         hour = self.hour
         day_of_week = self.timestamps[self.day - 1].dayofweek  # Monday = 0, Sunday = 6
@@ -144,7 +158,7 @@ class Electric_Car(gym.Env):
         ].dayofyear  # January 1st = 1, December 31st = 365
         month = self.timestamps[self.day - 1].month  # January = 1, December = 12
         year = self.timestamps[self.day - 1].year
-        self.state = np.array(
+        self.observation_space = np.array(
             [
                 battery_level,
                 price,
@@ -156,12 +170,22 @@ class Electric_Car(gym.Env):
             ]
         )
 
-        return self.state
+        return self.observation_space
 
-    def reset(self):
+    def reset(self, seed=None):
         # Reset the environment to its initial state
         self.day = 1
         self.hour = 1
         self.battery_level = 0
-        self.state = self.observation()
-        return self.state
+        self.observation_space = self.observation()
+
+        # Set the seed if provided
+        if seed is not None:
+            self.seed(seed)
+
+        # Return observation and reset info
+        return self.observation_space, {}
+
+    def seed(self, seed=None):
+        random.seed(seed)
+        np.random.seed(seed)
