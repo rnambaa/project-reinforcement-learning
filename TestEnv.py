@@ -15,7 +15,7 @@ class Electric_Car(gym.Env):
         self.set_data("data/train.xlsx")
 
         self.observation_space = gym.spaces.Box(
-            low=-np.inf, high=np.inf, shape=(7,), dtype=np.float32
+            low=0, high=400, shape=(7,), dtype=np.float32
         )
 
         # Battery characteristics
